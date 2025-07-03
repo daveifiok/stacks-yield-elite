@@ -96,3 +96,113 @@
     tier-name: (string-ascii 32),
   }
 )
+
+;; User voting history for governance participation tracking
+(define-map VotingHistory
+  {
+    user: principal,
+    proposal-id: uint,
+  }
+  {
+    vote-cast: bool,
+    voting-power-used: uint,
+    vote-timestamp: uint,
+  }
+)
+
+;; PROTOCOL INITIALIZATION
+
+;; Initialize StacksYield Elite with professional-grade tier configuration
+(define-public (initialize-protocol)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    ;; Configure Explorer Tier - Entry-level institutional staking
+    (map-set TierConfiguration u1 {
+      minimum-stake: u500000, ;; 500K uSTX entry threshold
+      yield-multiplier: u100, ;; 1x base yield multiplier
+      governance-weight: u100, ;; Standard governance weight
+      feature-access: (list true false false false false false false false false false false
+        false
+      ),
+      tier-name: "Explorer",
+    })
+    ;; Configure Pioneer Tier - Advanced staking with enhanced governance
+    (map-set TierConfiguration u2 {
+      minimum-stake: u2500000, ;; 2.5M uSTX threshold
+      yield-multiplier: u175, ;; 1.75x yield enhancement
+      governance-weight: u200, ;; Enhanced governance weight
+      feature-access: (list true true true true false false false false false false false false),
+      tier-name: "Pioneer",
+    })
+    ;; Configure Titan Tier - Elite staking with maximum privileges
+    (map-set TierConfiguration u3 {
+      minimum-stake: u7500000, ;; 7.5M uSTX elite threshold
+      yield-multiplier: u300, ;; 3x maximum yield multiplier
+      governance-weight: u500, ;; Maximum governance weight
+      feature-access: (list true true true true true true true true false false false false),
+      tier-name: "Titan",
+    })
+    (ok true)
+  )
+)
+
+;; CORE STAKING FUNCTIONS
+
+;; Advanced staking function with intelligent tier assignment and yield optimization
+(define-public (stake-tokens
+    (amount uint)
+    (lock-duration uint)
+  )
+  (let ((existing-position (default-to {
+      total-stx-staked: u0,
+      total-collateral: u0,
+      total-debt: u0,
+      health-factor: u0,
+      last-interaction: u0,
+      analytics-tokens: u0,
+      governance-power: u0,
+      tier-status: u0,
+      yield-multiplier: u100,
+      accumulated-rewards: u0,
+    }
+      (map-get? UserPositions tx-sender)
+    )))
+    ;; Comprehensive protocol safety validations
+    (asserts! (is-valid-lock-duration lock-duration) ERR-INVALID-PROTOCOL)
+    (asserts! (not (var-get contract-paused)) ERR-PAUSED)
+    (asserts! (>= amount (var-get minimum-stake-amount)) ERR-BELOW-MINIMUM)
+    ;; Execute secure STX transfer with atomic guarantees
+    (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+    ;; Calculate optimal tier assignment and yield parameters
+    (let (
+        (updated-stake-total (+ (get total-stx-staked existing-position) amount))
+        (tier-details (calculate-tier-assignment updated-stake-total))
+        (time-lock-multiplier (calculate-time-lock-bonus lock-duration))
+        (final-yield-multiplier (* (get yield-multiplier tier-details) time-lock-multiplier))
+      )
+      ;; Update comprehensive staking position
+      (map-set StakingPositions tx-sender {
+        staked-amount: amount,
+        stake-start-block: stacks-block-height,
+        last-reward-claim: stacks-block-height,
+        lock-duration: lock-duration,
+        cooldown-initiated: none,
+        compounded-rewards: u0,
+        tier-level: (get tier-level tier-details),
+      })
+      ;; Update user position with enhanced metrics
+      (map-set UserPositions tx-sender
+        (merge existing-position {
+          total-stx-staked: updated-stake-total,
+          tier-status: (get tier-level tier-details),
+          yield-multiplier: final-yield-multiplier,
+          governance-power: (* updated-stake-total (get governance-weight tier-details)),
+          last-interaction: stacks-block-height,
+        })
+      )
+      ;; Update global protocol metrics
+      (var-set total-stx-locked (+ (var-get total-stx-locked) amount))
+      (ok true)
+    )
+  )
+)
