@@ -319,3 +319,102 @@
     (ok proposal-id)
   )
 )
+
+;; Execute sophisticated weighted voting with participation tracking
+(define-public (cast-governance-vote
+    (proposal-id uint)
+    (support-proposal bool)
+  )
+  (let (
+      (proposal (unwrap! (map-get? GovernanceProposals { proposal-id: proposal-id })
+        ERR-INVALID-PROTOCOL
+      ))
+      (user-position (unwrap! (map-get? UserPositions tx-sender) ERR-NOT-AUTHORIZED))
+      (voting-power (get governance-power user-position))
+      (max-proposal-id (var-get total-proposals))
+    )
+    ;; Validate voting parameters and eligibility
+    (asserts! (< stacks-block-height (get end-block proposal)) ERR-NOT-AUTHORIZED)
+    (asserts! (and (> proposal-id u0) (<= proposal-id max-proposal-id))
+      ERR-INVALID-PROTOCOL
+    )
+    (asserts! (> voting-power u0) ERR-NOT-AUTHORIZED)
+    ;; Prevent double voting
+    (asserts!
+      (is-none (map-get? VotingHistory {
+        user: tx-sender,
+        proposal-id: proposal-id,
+      }))
+      ERR-NOT-AUTHORIZED
+    )
+    ;; Record vote with atomic state update
+    (map-set GovernanceProposals { proposal-id: proposal-id }
+      (merge proposal {
+        votes-for: (if support-proposal
+          (+ (get votes-for proposal) voting-power)
+          (get votes-for proposal)
+        ),
+        votes-against: (if support-proposal
+          (get votes-against proposal)
+          (+ (get votes-against proposal) voting-power)
+        ),
+      })
+    )
+    ;; Track voting history for transparency
+    (map-set VotingHistory {
+      user: tx-sender,
+      proposal-id: proposal-id,
+    } {
+      vote-cast: support-proposal,
+      voting-power-used: voting-power,
+      vote-timestamp: stacks-block-height,
+    })
+    (ok true)
+  )
+)
+
+;; PROTOCOL ADMINISTRATION
+
+;; Emergency protocol pause with enhanced security validation
+(define-public (emergency-pause-protocol)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (var-set contract-paused true)
+    (var-set emergency-mode true)
+    (ok true)
+  )
+)
+
+;; Resume protocol operations with comprehensive safety checks
+(define-public (resume-protocol-operations)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (var-set contract-paused false)
+    (var-set emergency-mode false)
+    (ok true)
+  )
+)
+
+;; Update protocol parameters with governance validation
+(define-public (update-protocol-parameters
+    (new-base-yield uint)
+    (new-minimum-stake uint)
+  )
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (and (>= new-base-yield u100) (<= new-base-yield u2000))
+      ERR-INVALID-PROTOCOL
+    )
+    (asserts! (>= new-minimum-stake u100000) ERR-INVALID-PROTOCOL)
+    (var-set base-annual-yield new-base-yield)
+    (var-set minimum-stake-amount new-minimum-stake)
+    (ok true)
+  )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Retrieve contract owner information
+(define-read-only (get-contract-owner)
+  (ok CONTRACT-OWNER)
+)
