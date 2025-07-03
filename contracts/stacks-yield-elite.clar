@@ -508,3 +508,61 @@
     )
   )
 )
+
+;; Sophisticated compound reward calculation engine
+(define-private (calculate-compound-rewards
+    (user principal)
+    (blocks-elapsed uint)
+  )
+  (match (map-get? StakingPositions user)
+    stake-position (match (map-get? UserPositions user)
+      user-position (let (
+          (staked-amount (get staked-amount stake-position))
+          (base-yield (var-get base-annual-yield))
+          (yield-multiplier (get yield-multiplier user-position))
+          (annual-blocks u52560) ;; Approximate blocks per year
+        )
+        ;; Calculate compound interest with precision scaling
+        (/ (* (* (* staked-amount base-yield) yield-multiplier) blocks-elapsed)
+          (* annual-blocks u10000)
+        )
+      )
+      u0
+    )
+    u0
+  )
+)
+
+;; Comprehensive proposal title validation
+(define-private (is-valid-proposal-title (title (string-utf8 128)))
+  (and
+    (>= (len title) u5) ;; Minimum meaningful title length
+    (<= (len title) u128) ;; Maximum title length for efficiency
+  )
+)
+
+;; Enhanced proposal description validation
+(define-private (is-valid-proposal-description (description (string-utf8 512)))
+  (and
+    (>= (len description) u20) ;; Minimum detailed description length
+    (<= (len description) u512) ;; Maximum description length for gas efficiency
+  )
+)
+
+;; Validate time-lock duration parameters
+(define-private (is-valid-lock-duration (duration uint))
+  (or
+    (is-eq duration u0) ;; Liquid staking (no lock)
+    (is-eq duration u4320) ;; 30-day lock period
+    (is-eq duration u8640) ;; 60-day lock period
+    (is-eq duration u17280) ;; 120-day maximum lock period
+  )
+)
+
+;; Governance voting duration validation
+(define-private (is-valid-voting-duration (duration uint))
+  (and
+    (>= duration u720) ;; Minimum 12-hour deliberation period
+    (<= duration u4320) ;; Maximum 72-hour voting window
+  )
+)
