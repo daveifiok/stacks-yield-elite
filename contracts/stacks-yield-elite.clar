@@ -418,3 +418,93 @@
 (define-read-only (get-contract-owner)
   (ok CONTRACT-OWNER)
 )
+
+;; Get current total value locked in protocol
+(define-read-only (get-total-value-locked)
+  (ok (var-get total-stx-locked))
+)
+
+;; Retrieve active governance proposal count
+(define-read-only (get-total-proposals)
+  (ok (var-get total-proposals))
+)
+
+;; Get user's complete staking position
+(define-read-only (get-user-position (user principal))
+  (ok (map-get? UserPositions user))
+)
+
+;; Get user's staking details
+(define-read-only (get-staking-position (user principal))
+  (ok (map-get? StakingPositions user))
+)
+
+;; Get tier configuration details
+(define-read-only (get-tier-details (tier-level uint))
+  (ok (map-get? TierConfiguration tier-level))
+)
+
+;; Get governance proposal details
+(define-read-only (get-proposal-details (proposal-id uint))
+  (ok (map-get? GovernanceProposals { proposal-id: proposal-id }))
+)
+
+;; Calculate current rewards for a user
+(define-read-only (get-pending-rewards (user principal))
+  (match (map-get? StakingPositions user)
+    stake-position (let ((blocks-elapsed (- stacks-block-height (get last-reward-claim stake-position))))
+      (ok (calculate-compound-rewards user blocks-elapsed))
+    )
+    (ok u0)
+  )
+)
+
+;; Get protocol health metrics
+(define-read-only (get-protocol-health)
+  (ok {
+    total-staked: (var-get total-stx-locked),
+    base-yield: (var-get base-annual-yield),
+    is-paused: (var-get contract-paused),
+    emergency-mode: (var-get emergency-mode),
+    total-proposals: (var-get total-proposals),
+  })
+)
+
+;; PRIVATE UTILITY FUNCTIONS
+
+;; Intelligent tier assignment based on total stake amount
+(define-private (calculate-tier-assignment (total-stake uint))
+  (if (>= total-stake u7500000)
+    {
+      tier-level: u3,
+      yield-multiplier: u300,
+      governance-weight: u500,
+    } ;; Titan Tier
+    (if (>= total-stake u2500000)
+      {
+        tier-level: u2,
+        yield-multiplier: u175,
+        governance-weight: u200,
+      } ;; Pioneer Tier
+      {
+        tier-level: u1,
+        yield-multiplier: u100,
+        governance-weight: u100,
+      } ;; Explorer Tier
+    )
+  )
+)
+
+;; Advanced time-lock bonus calculation with exponential scaling
+(define-private (calculate-time-lock-bonus (lock-duration uint))
+  (if (>= lock-duration u17280) ;; 120-day maximum lock period
+    u300 ;; 3x maximum multiplier
+    (if (>= lock-duration u8640) ;; 60-day lock period
+      u200 ;; 2x enhanced multiplier
+      (if (>= lock-duration u4320) ;; 30-day lock period
+        u150 ;; 1.5x standard multiplier
+        u100 ;; 1x base multiplier (liquid staking)
+      )
+    )
+  )
+)
